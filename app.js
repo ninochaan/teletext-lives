@@ -1,7 +1,8 @@
 /* TELETEXT LIVES — app.js
  * Kiroween 2026 — Category: Resurrection
- * Renderer core: segment model, helpers, header + clock, router, p100, page-not-found.
- * T2 — no input handling (T3), no live data (T4+).
+ * Renderer core (segment model, helpers, header + clock, hash router), input system
+ * (keyboard, on-screen keypad, HOLD, subpage stepping), data layer (fetch, cache, BBC
+ * proxy chain, RSS parser), page builders for pages 100-888, and fastext navigation.
  */
 
 'use strict';
