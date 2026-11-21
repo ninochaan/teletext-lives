@@ -851,45 +851,51 @@ function jakartaDateString() {
 
 /**
  * Build the header row-spec (row 0).
- * Layout: "P100   TELETEXT LIVES Sat 21 Nov 21:47:32"
- *         ←7 ch→ ←──14 ch────→ ←────19 ch────────→
- *         Total = 7 + 14 + 19 = 40.
+ * Layout is computed per render so the title and the weekday never touch,
+ * and the page number never touches the title:
+ *   "P100 TELETEXT LIVES  Sat 21 Nov 13:02:44"   (two-digit day)
+ *    ←5─→ ←──14 ch────→←2→←──10──→←1→←──8───→
+ * Segments: left field (LEFT_W) + title (14) + GAP_T (2) + date + GAP_DC (1)
+ * + clock (8) = 40, so the clock ends flush at column 40.
+ * LEFT_W = COLS - 14 - GAP_T - dateStr.length - GAP_DC - timeStr.length, i.e.
+ * 5 on two-digit days (date 10 ch) and 6 on one-digit days (date 9 ch). On a
+ * two-digit day the left field is "P100 ": exactly 1 blank before the title.
+ * LEFT_W is kept in _headerLeftW so wirePagenumNode()/updatePagenumDisplay()
+ * use the same width. The weekday is computed live by jakartaDateString(),
+ * never hardcoded.
  *
- * The right block is the full date (10 ch, e.g. "Sat 21 Nov") + 1 space +
- * the clock (8 ch, HH:MM:SS) = 19 ch. The weekday is computed live by
- * jakartaDateString(), never hardcoded.
+ * WHY 1 + 2: FIX6 split the 3 spare cells as 0 + 3 (GAP_T = 3), which left
+ * the page number flush to the title on two-digit days ("P100TELETEXT LIVES").
+ * FIX6b redistributes to 1 + 2 so both sides of the title breathe.
  *
- * The left field holds only the page number ("P100", or "P102 3" when the
- * hash carries a sub number). It cannot also carry the subpage fraction:
- * worst case "P102 12/12" (10) + 14 + 19 = 43 > 40. The current/total
- * fraction therefore lives in the coloured title band below the header
- * (see wireSubpageFraction()).
+ * WHY the sub digit left the header: with it the left label is "P300 1" (6)
+ * or "P300 10" (7), and 6 + 14 + 3 + 10 + 1 + 8 = 42 > 40. It does not fit.
+ * Nothing is lost: the current/total fraction lives in the coloured title
+ * band below the header (see wireSubpageFraction()). subLabel stays in the
+ * signature for callers but is not rendered here; the header shows 'P' +
+ * pageNum only.
  */
 function buildHeaderRow(pageNum, subLabel) {
-  const pageLabel = subLabel ? 'P' + pageNum + ' ' + subLabel : 'P' + pageNum;
-  const dateStr   = jakartaDateString();  // e.g. "Sat 21 Nov" — 10 chars
-  const timeStr   = jakartaTimeString(); // "21:47:32" — 8 chars
+  const TITLE   = 'TELETEXT LIVES'; // 14 cells
+  const GAP_T   = 2;                // blanks between title and date
+  const GAP_DC  = 1;                // blank between date and clock
+  const dateStr = jakartaDateString(); // "Sat 21 Nov" (10) or "Sat 1 Nov" (9)
+  const timeStr = jakartaTimeString(); // "13:02:44" — 8 chars
 
-  // Fixed widths: left=7, centre=14, right=19 → 40 total
-  const LEFT_W   = 7;
-  const CENTRE_W = 14;
-  const RIGHT_W  = COLS - LEFT_W - CENTRE_W; // 19
+  const LEFT_W = COLS - TITLE.length - GAP_T - dateStr.length - GAP_DC - timeStr.length;
+  _headerLeftW = LEFT_W;
 
-  const leftStr   = padRight(pageLabel, LEFT_W);    // "P100   "
-  const centreStr = padRight('TELETEXT LIVES', CENTRE_W); // "TELETEXT LIVES"
-  // Right = dateStr(10) + gap(1) + time(8) = 19. No leading space.
-  const rightDate = padRight(dateStr, 10);           // 10 chars
-  const rightTime = timeStr;                         // 8 chars
-  const rightGap  = padRight('', RIGHT_W - 10 - 8); // 1 char (space)
+  const leftStr = padRight('P' + pageNum, LEFT_W);
 
   return [
-    seg(leftStr,   'white',  'black'),
-    seg(centreStr, 'yellow', 'black'),
-    seg(rightDate, 'white',  'black'),
-    seg(rightGap,  'black',  'black'),
-    seg(rightTime, 'white',  'black'),
+    seg(leftStr,                  'white',  'black'),
+    seg(TITLE,                    'yellow', 'black'),
+    seg(padRight('', GAP_T),      'black',  'black'),
+    seg(dateStr,                  'white',  'black'),
+    seg(padRight('', GAP_DC),     'black',  'black'),
+    seg(timeStr,                  'white',  'black'),
   ];
-  // leftStr(7) + centre(14) + rightDate(10) + rightGap(1) + rightTime(8) = 40 ✓
+  // LEFT_W + 14 + 2 + dateStr + 1 + 8 = 40 by construction ✓
 }
 
 /**
@@ -930,11 +936,13 @@ function wireClockNode() {
 }
 
 /**
- * After renderPage(), wire the page-number display node: find the first 7
- * char-spans of row 0, replace them with <span id="tt-pagenum">.
+ * After renderPage(), wire the page-number display node: find the first
+ * _headerLeftW char-spans of row 0 (the width computed by buildHeaderRow),
+ * replace them with <span id="tt-pagenum">.
  * Digit entry updates this node to show partial entry like "P1__".
  */
 let _pagenumNode = null;
+let _headerLeftW = 4; // left-field width, recomputed by every buildHeaderRow()
 
 function wirePagenumNode() {
   const stage = document.getElementById('stage');
@@ -942,16 +950,16 @@ function wirePagenumNode() {
   if (!firstRow) return;
 
   const spans = Array.from(firstRow.querySelectorAll('span'));
-  if (spans.length < 7) return;
+  if (spans.length < _headerLeftW) return;
 
-  const pageSpans = spans.slice(0, 7);
+  const pageSpans = spans.slice(0, _headerLeftW);
 
   const wrapper = document.createElement('span');
   wrapper.id        = 'tt-pagenum';
   wrapper.className = 'fg-white bg-black';
   wrapper.style.cssText =
     'display:inline-flex;' +
-    'width:calc(100%/40*7);' +
+    'width:calc(100%/40*' + _headerLeftW + ');' +
     'height:100%;' +
     'font-family:inherit;' +
     'font-size:inherit;' +
@@ -1012,15 +1020,14 @@ function updatePagenumDisplay() {
   let text;
   if (buf.length === 0) {
     // Show current page from hash
-    const { page, sub } = parseHash();
-    const label = sub ? 'P' + page + ' ' + sub : 'P' + page;
-    text = padRight(label, 7);
+    const { page } = parseHash();
+    text = padRight('P' + page, _headerLeftW);
   } else {
     // Show partial entry: P1__, P10_
     const d1 = buf[0] || '_';
     const d2 = buf[1] || '_';
     const d3 = buf[2] || '_';
-    text = padRight('P' + d1 + d2 + d3, 7);
+    text = padRight('P' + d1 + d2 + d3, _headerLeftW);
   }
   _pagenumNode.textContent = text;
 }
