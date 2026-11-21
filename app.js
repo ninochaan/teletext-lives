@@ -1048,7 +1048,12 @@ const _fasstextTargets = { red: 101, green: 200, yellow: 300, cyan: 400 };
 
 /**
  * Build the fastext row (row 23).
- * Four 10-char blocks: Red, Green, Yellow, Cyan.
+ * Four 10-char blocks: Red, Green, Yellow, and Red-for-MARKETS. The fourth
+ * block renders red when labelled MARKETS; relabelled fourth blocks such as
+ * QUIZ / CREDITS keep cyan.
+ * The internal 'cyan' key naming (opts.cyan, _fasstextTargets.cyan,
+ * wireFastextBlocks colourMap, the 'c' keyboard shortcut) is unchanged: it
+ * names the fourth block's slot, not its rendered colour.
  * Also records the target page numbers in _fasstextTargets.
  * @param {{red?:number,green?:number,yellow?:number,cyan?:number,
  *          redLabel?:string,greenLabel?:string,yellowLabel?:string,cyanLabel?:string}} [overrides]
@@ -1069,11 +1074,15 @@ function fasstextRow(overrides) {
   _fasstextTargets.yellow = opts.yellow;
   _fasstextTargets.cyan   = opts.cyan;
 
+  // FIX7 (user request): the MARKETS block renders red, same as NEWS.
+  // Relabelled fourth blocks (QUIZ, CREDITS) keep the classic cyan.
+  const fourthBg = opts.cyanLabel === def.cyanLabel ? 'red' : 'cyan';
+
   return row(
     seg(padRight('\u25A0 ' + opts.redLabel,    10), 'black', 'red'),
     seg(padRight('\u25A0 ' + opts.greenLabel,  10), 'black', 'green'),
     seg(padRight('\u25A0 ' + opts.yellowLabel, 10), 'black', 'yellow'),
-    seg(padRight('\u25A0 ' + opts.cyanLabel,   10), 'black', 'cyan'),
+    seg(padRight('\u25A0 ' + opts.cyanLabel,   10), 'black', fourthBg),
   );
 }
 
