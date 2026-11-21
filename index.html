@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TELETEXT LIVES</title>
+  <!-- Teletext-style "T" favicon: yellow block letter on black, 32×32 -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23000'/%3E%3Crect x='4' y='4' width='24' height='5' fill='%23FF0'/%3E%3Crect x='13' y='9' width='6' height='19' fill='%23FF0'/%3E%3C/svg%3E">
+  <link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="outer">
+    <main id="stage"></main>
+    <div id="keypad">
+      <div class="keypad-row">
+        <button class="kp-btn" data-digit="1">1</button>
+        <button class="kp-btn" data-digit="2">2</button>
+        <button class="kp-btn" data-digit="3">3</button>
+      </div>
+      <div class="keypad-row">
+        <button class="kp-btn" data-digit="4">4</button>
+        <button class="kp-btn" data-digit="5">5</button>
+        <button class="kp-btn" data-digit="6">6</button>
+      </div>
+      <div class="keypad-row">
+        <button class="kp-btn" data-digit="7">7</button>
+        <button class="kp-btn" data-digit="8">8</button>
+        <button class="kp-btn" data-digit="9">9</button>
+      </div>
+      <div class="keypad-row">
+        <button class="kp-btn kp-home" data-action="home">100</button>
+        <button class="kp-btn" data-digit="0">0</button>
+        <button class="kp-btn kp-back" data-action="back">⌫</button>
+      </div>
+      <div class="keypad-row keypad-row-nav">
+        <button class="kp-btn kp-prev" data-action="prev" title="Previous subpage (←)">◀</button>
+        <button class="kp-btn kp-hold" data-action="hold" title="Hold/unhold rotation (H)">HOLD</button>
+        <button class="kp-btn kp-next" data-action="next" title="Next subpage (→)">▶</button>
+      </div>
+      <div class="keypad-row keypad-row-reveal">
+        <button class="kp-btn kp-reveal" data-action="reveal" title="Reveal answer (V)">REVEAL</button>
+      </div>
+    </div>
+  </div>
+  <script src="data/sample-data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,376 @@
+/* TELETEXT LIVES — styles.css
+ * Kiroween 2026 — Category: Resurrection
+ * Visual system: 40x24 grid, teletext palette, double-height, CRT overlay.
+ */
+
+/* ═══════════════════════════════════════════════════════
+   1. RESET + BASE
+   ═══════════════════════════════════════════════════════ */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  background: #000;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  overflow-x: hidden;
+}
+
+/* ═══════════════════════════════════════════════════════
+   2. OUTER WRAPPER — stage + keypad stacked
+   ═══════════════════════════════════════════════════════ */
+
+#outer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  min-height: 100vh;
+  padding: 0;
+  gap: 0;
+}
+
+/* ═══════════════════════════════════════════════════════
+   3. STAGE — the 40×24 teletext canvas
+   ═══════════════════════════════════════════════════════
+   The stage is a fixed-aspect-ratio box that scales to fit
+   the viewport width while keeping rows/cols readable.
+   On wide screens it is letterboxed in black.
+   ═══════════════════════════════════════════════════════ */
+
+#stage {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  /* Use 100% of outer — never raw 100vw, which overflows when a scrollbar is present */
+  width: min(100%, calc(100vh * 4 / 3));
+  aspect-ratio: 4 / 3;
+  background: #000;
+  font-family: 'VT323', monospace;
+  overflow: hidden;
+  flex-shrink: 0;
+  /* Container context so child spans can measure relative to stage width */
+  container-type: inline-size;
+  /* CRT: soft text glow */
+  filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.15));
+}
+
+/* CRT scanline overlay — pseudo-element over the whole stage */
+#stage::after {
+  content: '';
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  z-index: 100;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0px,
+    transparent 2px,
+    rgba(0, 0, 0, 0.18) 2px,
+    rgba(0, 0, 0, 0.18) 4px
+  );
+}
+
+/* Toggle CRT off */
+#stage.crt-off::after {
+  display: none;
+}
+#stage.crt-off {
+  filter: none;
+}
+
+/* ═══════════════════════════════════════════════════════
+   4. ROW LAYOUT
+   Each row is 1/24th of the stage height, flex row,
+   font-size is derived so 40 chars fill the stage width.
+   ═══════════════════════════════════════════════════════ */
+
+.tt-row {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  height: calc(100% / 24);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+/* Each span in a row is exactly 1 character wide */
+.tt-row span {
+  display: inline-block;
+  /* 40 chars fill 100% stage width */
+  width: calc(100% / 40);
+  height: 100%;
+  font-family: 'VT323', monospace;
+  /* cqw = 1% of the stage container width — avoids raw vw overflow issues */
+  font-size: calc(100cqw / 40);
+  line-height: 1;
+  white-space: pre;
+  overflow: hidden;
+  text-align: center;
+}
+
+/* ═══════════════════════════════════════════════════════
+   5. DOUBLE-HEIGHT TECHNIQUE — CSS scaleY(2)
+   The .dh-row contains the visible scaled text.
+   It sits in a 2-row container (.dh-block).
+   ═══════════════════════════════════════════════════════ */
+
+.dh-block {
+  /* Occupies exactly 2 normal rows */
+  height: calc(100% / 24 * 2);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.dh-row {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  height: 50%;
+  overflow: hidden;
+  flex-shrink: 0;
+  transform: scaleY(2);
+  transform-origin: top left;
+}
+
+.dh-row span {
+  display: inline-block;
+  width: calc(100% / 40);
+  height: 100%;
+  font-family: 'VT323', monospace;
+  /* cqw = 1% of the stage container width — avoids raw vw overflow issues */
+  font-size: calc(100cqw / 40);
+  line-height: 1;
+  white-space: pre;
+  overflow: hidden;
+  text-align: center;
+}
+
+/* ═══════════════════════════════════════════════════════
+   6. TELETEXT PALETTE — exact hex values
+   ═══════════════════════════════════════════════════════ */
+
+.fg-black   { color: #000000; }
+.fg-red     { color: #FF0000; }
+.fg-green   { color: #00FF00; }
+.fg-yellow  { color: #FFFF00; }
+.fg-blue    { color: #0000FF; }
+.fg-magenta { color: #FF00FF; }
+.fg-cyan    { color: #00FFFF; }
+.fg-white   { color: #FFFFFF; }
+
+.bg-black   { background-color: #000000; }
+.bg-red     { background-color: #FF0000; }
+.bg-green   { background-color: #00FF00; }
+.bg-yellow  { background-color: #FFFF00; }
+.bg-blue    { background-color: #0000FF; }
+.bg-magenta { background-color: #FF00FF; }
+.bg-cyan    { background-color: #00FFFF; }
+.bg-white   { background-color: #FFFFFF; }
+
+/* ═══════════════════════════════════════════════════════
+   7. FLASH (used ONLY for the "LIVE" tag on p200)
+   ═══════════════════════════════════════════════════════ */
+
+@keyframes tt-flash {
+  0%, 100% { visibility: visible; }
+  50%       { visibility: hidden;  }
+}
+
+.flash {
+  animation: tt-flash 1s steps(1) infinite;
+}
+
+/* ═══════════════════════════════════════════════════════
+   8. REDUCED MOTION — disable CRT + flash
+   ═══════════════════════════════════════════════════════ */
+
+@media (prefers-reduced-motion: reduce) {
+  #stage::after {
+    display: none;
+  }
+  #stage {
+    filter: none;
+  }
+  .flash {
+    animation: none;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════
+   9. ON-SCREEN KEYPAD
+   ═══════════════════════════════════════════════════════ */
+
+#keypad {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 8px;
+  background: #111;
+  width: min(100%, calc(100vh * 4 / 3));
+}
+
+.keypad-row {
+  display: flex;
+  flex-direction: row;
+  gap: 6px;
+  width: 100%;
+  justify-content: center;
+}
+
+.kp-btn {
+  flex: 1;
+  max-width: 80px;
+  min-height: 44px;   /* comfortable tap target */
+  background: #222;
+  color: #FFFF00;
+  font-family: 'VT323', monospace;
+  font-size: 1.4rem;
+  border: 1px solid #444;
+  border-radius: 4px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.1s;
+}
+
+.kp-btn:active,
+.kp-btn:focus {
+  background: #333;
+  outline: none;
+}
+
+.kp-home {
+  background: #002200;
+  color: #00FF00;
+}
+
+.kp-back {
+  background: #220000;
+  color: #FF0000;
+}
+
+/* Nav row (prev / hold / next) */
+.keypad-row-nav {
+  margin-top: 2px;
+}
+
+.kp-hold {
+  background: #001133;
+  color: #00FFFF;
+  font-size: 1.1rem;
+  letter-spacing: 0.05em;
+}
+
+.kp-hold.hold-active {
+  background: #0033AA;
+  color: #FFFF00;
+}
+
+.kp-prev,
+.kp-next {
+  background: #1a1a1a;
+  color: #FFFFFF;
+}
+
+/* REVEAL button (quiz page) */
+.keypad-row-reveal {
+  margin-top: 2px;
+}
+
+.kp-reveal {
+  background: #220033;
+  color: #FF00FF;
+  font-size: 1.1rem;
+  letter-spacing: 0.05em;
+  max-width: 100%;
+}
+
+.kp-reveal.reveal-active {
+  background: #660099;
+  color: #FFFFFF;
+}
+
+/* Fastext blocks in row 23 are clickable */
+.fastext-block {
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.fastext-block:hover {
+  filter: brightness(1.25);
+}
+
+/* data-page anchors inside stage rows */
+[data-page] {
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+}
+
+[data-page]:hover {
+  filter: brightness(1.3);
+}
+
+/* ═══════════════════════════════════════════════════════
+   10. RESPONSIVE — phone portrait
+   On very small screens we let the stage fill 100vw and the
+   keypad stay below it; font-size scales automatically via
+   the calc() in span rules above.
+   ═══════════════════════════════════════════════════════ */
+
+@media (max-width: 480px) {
+  #stage {
+    width: 100%;
+  }
+  #keypad {
+    width: 100%;
+  }
+}
+
+/* On landscape or large displays, letterbox */
+@media (min-aspect-ratio: 4/3) {
+  body {
+    align-items: center;
+  }
+  #outer {
+    width: auto;
+    min-height: unset;
+  }
+  #stage {
+    width: calc(100vh * 4 / 3);
+    height: 100vh;
+  }
+  #keypad {
+    width: calc(100vh * 4 / 3);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════
+   11. FASTEXT TOUCH TARGET BOOST — mobile portrait
+   The stage's row 23 (fastext bar) is only ~12px tall at
+   390 px wide. Add a taller invisible touch-target on the
+   stage's bottom edge so the fastext colour keys are easy
+   to tap on a phone without distorting the grid visuals.
+   ═══════════════════════════════════════════════════════ */
+
+/* Extend the fastext block click area downward via padding
+   only when stage rows are very short (narrower than 500 px). */
+@media (max-width: 500px) {
+  .fastext-block {
+    /* Extend tap area above and below without affecting layout */
+    padding-top: 10px;
+    padding-bottom: 14px;
+    margin-top: -10px;
+    margin-bottom: -14px;
+  }
+}

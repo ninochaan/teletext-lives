@@ -1,0 +1,31 @@
+# TELETEXT LIVES — .gitignore
+#
+# HACKATHON RULE: /.kiro must NEVER be ignored.
+# The Kiroween rules require /.kiro to be present in the public repo
+# as evidence of genuine Kiro usage. Do not add it here.
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux
+*~
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor and IDE directories
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Node (not used in this project, but guard against accidental init)
+node_modules/
