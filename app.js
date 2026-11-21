@@ -851,38 +851,36 @@ function jakartaDateString() {
 
 /**
  * Build the header row-spec (row 0).
- * Layout: "P100    TELETEXT LIVES   Wed 19 Nov  21:47:32"
- *         ←8 ch→  ←──14 ch──→     ←────18 ch──────────→
- *         Total = 8 + 14 + 18 = 40.
+ * Layout: "P100   TELETEXT LIVES Sat 21 Nov 21:47:32"
+ *         ←7 ch→ ←──14 ch────→ ←────19 ch────────→
+ *         Total = 7 + 14 + 19 = 40.
  *
- * The right block is split into date (10 ch) + 2 spaces + time (8 ch) = 20 ch,
- * but the rightWidth = 40-8-14 = 18, so we fit: "Wed 19 Nov  21:47:32" → trim to 18.
- * Actually: dateStr like "Sat 21 Nov" = 10 chars; "  " = 2; timeStr = 8 → total 20.
- * We use: left(8) + centre(14) + gap(2) + date(10) + gap(0) + time(8-2) = ...
- * Simplest: allocate fixed widths:
- *   left = 8, centre = 14, right = 18 → date in first 10, 2 spaces, time in last 8 — total 20.
- * But 8+14+20=42, too many. Use: left=7, centre=14, right=19.
- * "P100   " = 7, "TELETEXT LIVES" = 14, " Sat 21 Nov 21:47:32" = 19.
- * 7+14+19 = 40. ✓
+ * The right block is the full date (10 ch, e.g. "Sat 21 Nov") + 1 space +
+ * the clock (8 ch, HH:MM:SS) = 19 ch. The weekday is computed live by
+ * jakartaDateString(), never hardcoded.
+ *
+ * The left field holds only the page number ("P100", or "P102 3" when the
+ * hash carries a sub number). It cannot also carry the subpage fraction:
+ * worst case "P102 12/12" (10) + 14 + 19 = 43 > 40. The current/total
+ * fraction therefore lives in the coloured title band below the header
+ * (see wireSubpageFraction()).
  */
 function buildHeaderRow(pageNum, subLabel) {
   const pageLabel = subLabel ? 'P' + pageNum + ' ' + subLabel : 'P' + pageNum;
   const dateStr   = jakartaDateString();  // e.g. "Sat 21 Nov" — 10 chars
   const timeStr   = jakartaTimeString(); // "21:47:32" — 8 chars
 
-  // Fixed widths: left=10 (fits "P102 12/12"), centre=14, right=16 → 40 total
-  const LEFT_W   = 10;
+  // Fixed widths: left=7, centre=14, right=19 → 40 total
+  const LEFT_W   = 7;
   const CENTRE_W = 14;
-  const RIGHT_W  = COLS - LEFT_W - CENTRE_W; // 16
+  const RIGHT_W  = COLS - LEFT_W - CENTRE_W; // 19
 
   const leftStr   = padRight(pageLabel, LEFT_W);    // "P100   "
   const centreStr = padRight('TELETEXT LIVES', CENTRE_W); // "TELETEXT LIVES"
-  // Right = space + date + space + time = 1+10+1+8 = 20... trim to 19:
-  // " " + dateStr(10) = 11, then space(1) = 12, then time(8) = 20 — 1 too many
-  // Use: dateStr(10) + " " + time(8) = 19. No leading space.
-  const rightDate = padRight(dateStr.slice(4), 6);   // "21 Nov" — weekday dropped to make room
+  // Right = dateStr(10) + gap(1) + time(8) = 19. No leading space.
+  const rightDate = padRight(dateStr, 10);           // 10 chars
   const rightTime = timeStr;                         // 8 chars
-  const rightGap  = padRight('', RIGHT_W - 6 - 8);  // 2 chars
+  const rightGap  = padRight('', RIGHT_W - 10 - 8); // 1 char (space)
 
   return [
     seg(leftStr,   'white',  'black'),
@@ -891,7 +889,7 @@ function buildHeaderRow(pageNum, subLabel) {
     seg(rightGap,  'black',  'black'),
     seg(rightTime, 'white',  'black'),
   ];
-  // rightDate(6) + rightGap(2) + rightTime(8) = 16 ✓
+  // leftStr(7) + centre(14) + rightDate(10) + rightGap(1) + rightTime(8) = 40 ✓
 }
 
 /**
@@ -944,16 +942,16 @@ function wirePagenumNode() {
   if (!firstRow) return;
 
   const spans = Array.from(firstRow.querySelectorAll('span'));
-  if (spans.length < 10) return;
+  if (spans.length < 7) return;
 
-  const pageSpans = spans.slice(0, 10);
+  const pageSpans = spans.slice(0, 7);
 
   const wrapper = document.createElement('span');
   wrapper.id        = 'tt-pagenum';
   wrapper.className = 'fg-white bg-black';
   wrapper.style.cssText =
     'display:inline-flex;' +
-    'width:calc(100%/40*10);' +
+    'width:calc(100%/40*7);' +
     'height:100%;' +
     'font-family:inherit;' +
     'font-size:inherit;' +
@@ -969,6 +967,44 @@ function wirePagenumNode() {
   updatePagenumDisplay();
 }
 
+/**
+ * After renderPage(), show the subpage fraction (e.g. " 4/10") in the coloured
+ * double-height title band: replace the band row's last 5 char-spans with one
+ * wrapper span <span id="tt-subfrac"> that inherits the band's fg/bg classes.
+ * No-op for static pages (falsy subLabel) or pages without a title band.
+ * assemblePage() runs again on every rotation step with a fresh subLabel,
+ * so no timer or extra updater is needed.
+ * @param {string} [subLabel] — "current/total", e.g. "4/10"
+ */
+function wireSubpageFraction(subLabel) {
+  if (!subLabel) return;
+  const stage = document.getElementById('stage');
+  const bandRow = stage.querySelector('.dh-block .dh-row');
+  if (!bandRow) return;
+
+  const spans = Array.from(bandRow.querySelectorAll('span'));
+  if (spans.length < 5) return;
+
+  const fracSpans = spans.slice(-5);
+
+  const wrapper = document.createElement('span');
+  wrapper.id        = 'tt-subfrac';
+  wrapper.className = fracSpans[0].className;
+  wrapper.style.cssText =
+    'display:inline-flex;' +
+    'width:calc(100%/40*5);' +
+    'height:100%;' +
+    'font-family:inherit;' +
+    'font-size:inherit;' +
+    'white-space:pre;' +
+    'align-items:flex-start;';
+  wrapper.textContent = padLeft(subLabel, 5);
+
+  const parent = fracSpans[0].parentNode;
+  parent.insertBefore(wrapper, fracSpans[0]);
+  for (const sp of fracSpans) parent.removeChild(sp);
+}
+
 /** Update the page number node text — called on render and during digit entry. */
 function updatePagenumDisplay() {
   if (!_pagenumNode) return;
@@ -977,18 +1013,14 @@ function updatePagenumDisplay() {
   if (buf.length === 0) {
     // Show current page from hash
     const { page, sub } = parseHash();
-    let label = sub ? 'P' + page + ' ' + sub : 'P' + page;
-    if (hasSubpages()) {
-      label = 'P' + _subpageState.pageNum + ' ' +
-              (_subpageState.current + 1) + '/' + _subpageState.screens.length;
-    }
-    text = padRight(label, 10);
+    const label = sub ? 'P' + page + ' ' + sub : 'P' + page;
+    text = padRight(label, 7);
   } else {
     // Show partial entry: P1__, P10_
     const d1 = buf[0] || '_';
     const d2 = buf[1] || '_';
     const d3 = buf[2] || '_';
-    text = padRight('P' + d1 + d2 + d3, 10);
+    text = padRight('P' + d1 + d2 + d3, 7);
   }
   _pagenumNode.textContent = text;
 }
@@ -1057,6 +1089,7 @@ function assemblePage(bodyRows, pageNum, subLabel) {
   renderPage([header].concat(bodyRows));
   wireClockNode();
   wirePagenumNode();
+  wireSubpageFraction(subLabel);
   wireFastextBlocks();
   wireDataPageLinks();
 }
