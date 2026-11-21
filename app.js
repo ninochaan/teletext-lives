@@ -1,7 +1,8 @@
 /* TELETEXT LIVES — app.js
  * Kiroween 2026 — Category: Resurrection
- * Renderer core: segment model, helpers, header + clock, router, p100, page-not-found.
- * T2 — no input handling (T3), no live data (T4+).
+ * Renderer core (segment model, helpers, header + clock, hash router), input system
+ * (keyboard, on-screen keypad, HOLD, subpage stepping), data layer (fetch, cache, BBC
+ * proxy chain, RSS parser), page builders for pages 100-888, and fastext navigation.
  */
 
 'use strict';
@@ -769,7 +770,7 @@ function buildSpan(s) {
  */
 function buildRowDiv(rowSpec, divClass) {
   const div = document.createElement('div');
-  div.className = divClass;
+  div.className = rowSpec._fasstext ? divClass + ' tt-fastext-row' : divClass;
   for (const s of rowSpec) {
     for (const ch of s.t) {
       div.appendChild(buildSpan({ t: ch, fg: s.fg, bg: s.bg, flash: s.flash }));
@@ -1078,12 +1079,15 @@ function fasstextRow(overrides) {
   // Relabelled fourth blocks (QUIZ, CREDITS) keep the classic cyan.
   const fourthBg = opts.cyanLabel === def.cyanLabel ? 'red' : 'cyan';
 
-  return row(
+  const fxRow = row(
     seg(padRight('\u25A0 ' + opts.redLabel,    10), 'black', 'red'),
     seg(padRight('\u25A0 ' + opts.greenLabel,  10), 'black', 'green'),
     seg(padRight('\u25A0 ' + opts.yellowLabel, 10), 'black', 'yellow'),
     seg(padRight('\u25A0 ' + opts.cyanLabel,   10), 'black', fourthBg),
   );
+  // FIX9a: tag so the renderer/wiring can find this row wherever it lands
+  fxRow._fasstext = true;
+  return fxRow;
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -1929,6 +1933,8 @@ function navigate(page, sub) {
 /** Route handler — called on hashchange and on boot. */
 function route() {
   clearPageTimers();
+  // FIX9b: a page change always discards any partial digit entry
+  resetDigitEntry();
   const { page, sub } = parseHash();
   const renderer = PAGES[page];
   if (renderer) {
@@ -1936,6 +1942,7 @@ function route() {
   } else {
     renderPageNotFound(page);
   }
+  updatePagenumDisplay();
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -1949,6 +1956,34 @@ function route() {
    buffer starts with "0", completing on 3rd digit).
    ═══════════════════════════════════════════════════════ */
 
+// FIX9b: idle timeout for partial entries
+const DIGIT_IDLE_MS = 2500;
+let _digitIdleTimer = null;
+
+function cancelDigitIdleTimer() {
+  if (_digitIdleTimer !== null) {
+    clearTimeout(_digitIdleTimer);
+    _digitIdleTimer = null;
+  }
+}
+
+/** (Re)start the idle timer while a partial entry is pending. */
+function armDigitIdleTimer() {
+  cancelDigitIdleTimer();
+  _digitIdleTimer = setTimeout(function () {
+    _digitIdleTimer = null;
+    if (_digitBuffer.length === 0) return;
+    _digitBuffer = '';
+    updatePagenumDisplay();
+  }, DIGIT_IDLE_MS);
+}
+
+/** Clear the buffer and idle timer (no display refresh). */
+function resetDigitEntry() {
+  _digitBuffer = '';
+  cancelDigitIdleTimer();
+}
+
 /** Push a digit character into the entry buffer. */
 function digitInput(ch) {
   if (_digitBuffer.length >= 3) return; // already full (shouldn't happen)
@@ -1957,8 +1992,10 @@ function digitInput(ch) {
 
   if (_digitBuffer.length === 3) {
     const page = _digitBuffer;
-    _digitBuffer = '';
+    resetDigitEntry();
     navigate(page);
+  } else {
+    armDigitIdleTimer();
   }
 }
 
@@ -1966,13 +2003,14 @@ function digitInput(ch) {
 function digitBackspace() {
   if (_digitBuffer.length === 0) return;
   _digitBuffer = _digitBuffer.slice(0, -1);
+  if (_digitBuffer.length === 0) cancelDigitIdleTimer(); else armDigitIdleTimer();
   updatePagenumDisplay();
 }
 
 /** Cancel digit entry (Esc). */
 function digitCancel() {
   if (_digitBuffer.length === 0) return;
-  _digitBuffer = '';
+  resetDigitEntry();
   updatePagenumDisplay();
 }
 
@@ -1991,7 +2029,8 @@ function wireFastextBlocks() {
   const stage = document.getElementById('stage');
   const rows  = stage.querySelectorAll('.tt-row, .dh-block');
   if (!rows.length) return;
-  const lastRow = rows[rows.length - 1];
+  // FIX9a: prefer the tagged fastext row; fall back to the last row
+  const lastRow = stage.querySelector('.tt-fastext-row') || rows[rows.length - 1];
 
   // Map each 10-char block to its colour and target
   const colourMap = [
@@ -3006,7 +3045,9 @@ registerPage(300, function(ctx) {
     if (screens.length === 1) {
       assemblePage(screens[0], '300');
     } else {
-      startSubpageRotation(screens, '300', { interval: 8 });
+      var reqSub300 = parseInt(ctx && ctx.sub, 10);
+      var startAt300 = isNaN(reqSub300) ? 0 : Math.max(0, Math.min(reqSub300 - 1, screens.length - 1));
+      startSubpageRotation(screens, '300', { interval: 8, startAt: startAt300 });
     }
 
     /* Background refresh: re-render on fresh data for Jakarta (screen 0) */
@@ -3158,7 +3199,9 @@ registerPage(301, function(ctx) {
     const screen1 = buildWorldScreenBody(slice1, wx1, 0, fetchedAt, fromCache);
     const screen2 = buildWorldScreenBody(slice2, wx2, 1, fetchedAt, fromCache);
 
-    startSubpageRotation([screen1, screen2], '301', { interval: 8 });
+    var reqSub301 = parseInt(ctx && ctx.sub, 10);
+    var startAt301 = isNaN(reqSub301) ? 0 : Math.max(0, Math.min(reqSub301 - 1, 1));
+    startSubpageRotation([screen1, screen2], '301', { interval: 8, startAt: startAt301 });
 
   }).catch(function(err) {
     if (parseHash().page !== '301') return;
@@ -4550,6 +4593,7 @@ registerPage(200, function(ctx) {
   /* Load sport RSS and scores in parallel */
   let sportResult  = null;
   let scoresResult = null;
+  let scoresTimerStarted = false;
 
   function _tryRender200() {
     if (!sportResult || !scoresResult) return;
@@ -4557,7 +4601,9 @@ registerPage(200, function(ctx) {
     const body = buildPage200Body(sportResult, scoresResult);
     assemblePage(body, '200');
 
-    /* Start 5-min scores refresh timer */
+    /* Start 5-min scores refresh timer (once, even if rendered repeatedly) */
+    if (scoresTimerStarted) return;
+    scoresTimerStarted = true;
     addPageInterval(function() {
       if (parseHash().page !== '200') return;
       loadScores(function onFresh(fresh) {
@@ -4602,6 +4648,16 @@ registerPage(200, function(ctx) {
     scoresResult = _scoresFromSample();
     _tryRender200();
   });
+
+  /* Bounded wait: after 7 s fill any pending result with its own failure-path
+     value and render. Late real results still overwrite and re-render. */
+  addPageTimeout(function() {
+    if (parseHash().page !== '200') return;
+    if (sportResult && scoresResult) return;
+    if (!sportResult)  sportResult  = { items: [], fetchedAt: Date.now(), fromCache: false };
+    if (!scoresResult) scoresResult = _scoresFromSample();
+    _tryRender200();
+  }, 7000);
 });
 
 /* ═══════════════════════════════════════════════════════
@@ -4650,8 +4706,8 @@ function buildLeagueSubpageBody(leagueKey, matches, isSample, fetchedAt, fromCac
 
   /* Row 4: column header */
   rows.push(row(
-    seg(padRight('HOME',   14), 'black', 'yellow'),
-    seg(padCentre('SCORE', 5), 'black', 'yellow'),
+    seg(padRight('HOME',   13), 'black', 'yellow'),
+    seg(padRight('SCORE',  6), 'black', 'yellow'),
     seg(padRight('AWAY',   14), 'black', 'yellow'),
     seg(padLeft('STATUS',  7), 'black', 'yellow'),
   ));
@@ -5153,7 +5209,7 @@ function buildPage500AboutBody() {
     rows.push(row(seg(' ' + padRight(l.text, COLS - 1), l.fg, 'black')));
   }
 
-  rows.push(blankRow());
+  /* (FIX9a: separator blank removed here — coloured heading bar separates) */
 
   /* Row 17: how to use heading */
   rows.push(row(seg(padRight(' HOW TO USE', COLS), 'black', 'cyan')));
