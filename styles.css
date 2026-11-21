@@ -369,21 +369,17 @@ html, body {
 }
 
 /* ═══════════════════════════════════════════════════════
-   11. FASTEXT TOUCH TARGET BOOST — mobile portrait
+   11. FASTEXT BAR TAP TARGET — mobile portrait (no rule)
    The stage's row 23 (fastext bar) is only ~12px tall at
-   390 px wide. Add a taller invisible touch-target on the
-   stage's bottom edge so the fastext colour keys are easy
-   to tap on a phone without distorting the grid visuals.
+   phone widths. A taller tap target was once attempted here
+   with vertical padding plus negative margins on
+   .fastext-block. FIX8 (2026-11-21) removed it: the 24px of
+   padding exceeded the row height, clamped the blocks'
+   content box to 0 and collapsed every child span
+   (height:100%) to 0px tall, so the bar rendered as
+   invisible black at viewport widths of 500px and below,
+   on every page. The bar's tap target is now its natural
+   row height, same as on desktop.
+   DO NOT reintroduce vertical padding or negative margins
+   on .fastext-block.
    ═══════════════════════════════════════════════════════ */
-
-/* Extend the fastext block click area downward via padding
-   only when stage rows are very short (narrower than 500 px). */
-@media (max-width: 500px) {
-  .fastext-block {
-    /* Extend tap area above and below without affecting layout */
-    padding-top: 10px;
-    padding-bottom: 14px;
-    margin-top: -10px;
-    margin-bottom: -14px;
-  }
-}
