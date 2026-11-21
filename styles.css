@@ -306,6 +306,19 @@ html, body {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* Block = 10 cells (25% of the row); its 10 child cells are 10% of the block each.
+   Selector specificity beats `.tt-row span` (one-cell width). */
+.tt-row .fastext-block {
+  width: 25%;
+  flex: 0 0 25%;
+  overflow: visible;
+}
+
+.tt-row .fastext-block span {
+  width: 10%;
+  flex: 0 0 10%;
+}
+
 .fastext-block:hover {
   filter: brightness(1.25);
 }

@@ -384,6 +384,7 @@ const BBC_FEEDS = [
   'https://feeds.bbci.co.uk/news/world/asia/rss.xml',
 ];
 const NYT_FEED = 'https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml';
+const NEWS_BBC_GRACE_MS = 5000; // start NYT concurrently if no BBC items by then
 
 /**
  * Merge, deduplicate by title, sort newest-first, cap to 12 items.
@@ -478,41 +479,81 @@ async function loadNews(onFresh) {
  * Returns { items, sourceName }.
  */
 async function _fetchMergedNews() {
+  let anyBBC = false; // true once any BBC feed has produced items
+
   // Fetch all three BBC feeds in parallel; each goes through the proxy chain
   const feedPromises = BBC_FEEDS.map(async function(feedUrl) {
     const xml   = await fetchBBCFeed(feedUrl);
     const items = parseRSS(xml);
     if (!items.length) throw new Error('Empty feed: ' + feedUrl);
+    anyBBC = true;
     return items;
   });
 
-  const results = await Promise.allSettled(feedPromises);
-
-  const bbcResults = [];
-  for (let i = 0; i < results.length; i++) {
-    const r = results[i];
-    if (r.status === 'fulfilled') {
-      bbcResults.push(r.value);
-    } else {
-      console.warn('[loadNews] BBC feed failed:', BBC_FEEDS[i], r.reason && r.reason.message);
+  // BBC result: waits for all feeds to settle, rejects if none produced items
+  const bbcPromise = Promise.allSettled(feedPromises).then(function(results) {
+    const bbcResults = [];
+    for (let i = 0; i < results.length; i++) {
+      const r = results[i];
+      if (r.status === 'fulfilled') {
+        bbcResults.push(r.value);
+      } else {
+        console.warn('[loadNews] BBC feed failed:', BBC_FEEDS[i], r.reason && r.reason.message);
+      }
     }
+    if (!bbcResults.length) throw new Error('All BBC feeds failed');
+    return { items: _mergeNewsItems(bbcResults), sourceName: 'BBC NEWS' };
+  });
+
+  // NYT result: direct CORS feed
+  function fetchNYT() {
+    return fetchDirectFeed(NYT_FEED).then(function(nytItems) {
+      const items = _mergeNewsItems([nytItems]);
+      if (!items.length) throw new Error('Empty feed: ' + NYT_FEED);
+      return { items: items, sourceName: 'NY TIMES' };
+    });
   }
 
-  if (bbcResults.length > 0) {
-    const items = _mergeNewsItems(bbcResults);
-    return { items: items, sourceName: 'BBC NEWS' };
-  }
+  // BBC preferred. If no BBC feed has items after the grace period, start NYT
+  // concurrently; from then on the first successful source wins.
+  return new Promise(function(resolve, reject) {
+    let settled = false, bbcFailed = false, nytFailed = false, nytStarted = false;
+    let timer = null;
 
-  // All BBC feeds failed — try NYT direct CORS
-  console.warn('[loadNews] All BBC feeds failed; trying NYT fallback');
-  try {
-    const nytItems = await fetchDirectFeed(NYT_FEED);
-    const items = _mergeNewsItems([nytItems]);
-    return { items: items, sourceName: 'NY TIMES' };
-  } catch (e) {
-    console.error('[loadNews] NYT fallback also failed:', e.message);
-    throw new Error('All news sources failed');
-  }
+    function win(result) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    }
+    function checkAllFailed() {
+      if (settled || !bbcFailed || !nytFailed) return;
+      settled = true;
+      console.error('[loadNews] BBC and NYT both failed');
+      reject(new Error('All news sources failed'));
+    }
+    function startNYT() {
+      if (nytStarted || settled) return;
+      nytStarted = true;
+      console.warn('[loadNews] No BBC items yet; trying NYT fallback');
+      fetchNYT().then(win, function(e) {
+        console.error('[loadNews] NYT fallback failed:', e.message);
+        nytFailed = true;
+        checkAllFailed();
+      });
+    }
+
+    bbcPromise.then(win, function() {
+      bbcFailed = true;
+      clearTimeout(timer);
+      startNYT();
+      checkAllFailed();
+    });
+
+    timer = setTimeout(function() {
+      if (!anyBBC) startNYT();
+    }, NEWS_BBC_GRACE_MS);
+  });
 }
 
 /* ── 2.10  Public API ─────────────────────────────────────── */
@@ -829,19 +870,19 @@ function buildHeaderRow(pageNum, subLabel) {
   const dateStr   = jakartaDateString();  // e.g. "Sat 21 Nov" — 10 chars
   const timeStr   = jakartaTimeString(); // "21:47:32" — 8 chars
 
-  // Fixed widths: left=7, centre=14, right=19 → 40 total
-  const LEFT_W   = 7;
+  // Fixed widths: left=10 (fits "P102 12/12"), centre=14, right=16 → 40 total
+  const LEFT_W   = 10;
   const CENTRE_W = 14;
-  const RIGHT_W  = COLS - LEFT_W - CENTRE_W; // 19
+  const RIGHT_W  = COLS - LEFT_W - CENTRE_W; // 16
 
   const leftStr   = padRight(pageLabel, LEFT_W);    // "P100   "
   const centreStr = padRight('TELETEXT LIVES', CENTRE_W); // "TELETEXT LIVES"
   // Right = space + date + space + time = 1+10+1+8 = 20... trim to 19:
   // " " + dateStr(10) = 11, then space(1) = 12, then time(8) = 20 — 1 too many
   // Use: dateStr(10) + " " + time(8) = 19. No leading space.
-  const rightDate = padRight(dateStr, 10);           // 10 chars
+  const rightDate = padRight(dateStr.slice(4), 6);   // "21 Nov" — weekday dropped to make room
   const rightTime = timeStr;                         // 8 chars
-  const rightGap  = padRight('', RIGHT_W - 10 - 8); // 1 char (space)
+  const rightGap  = padRight('', RIGHT_W - 6 - 8);  // 2 chars
 
   return [
     seg(leftStr,   'white',  'black'),
@@ -850,7 +891,7 @@ function buildHeaderRow(pageNum, subLabel) {
     seg(rightGap,  'black',  'black'),
     seg(rightTime, 'white',  'black'),
   ];
-  // rightDate(10) + rightGap(1) + rightTime(8) = 19 ✓
+  // rightDate(6) + rightGap(2) + rightTime(8) = 16 ✓
 }
 
 /**
@@ -903,16 +944,16 @@ function wirePagenumNode() {
   if (!firstRow) return;
 
   const spans = Array.from(firstRow.querySelectorAll('span'));
-  if (spans.length < 7) return;
+  if (spans.length < 10) return;
 
-  const pageSpans = spans.slice(0, 7);
+  const pageSpans = spans.slice(0, 10);
 
   const wrapper = document.createElement('span');
   wrapper.id        = 'tt-pagenum';
   wrapper.className = 'fg-white bg-black';
   wrapper.style.cssText =
     'display:inline-flex;' +
-    'width:calc(100%/40*7);' +
+    'width:calc(100%/40*10);' +
     'height:100%;' +
     'font-family:inherit;' +
     'font-size:inherit;' +
@@ -936,14 +977,18 @@ function updatePagenumDisplay() {
   if (buf.length === 0) {
     // Show current page from hash
     const { page, sub } = parseHash();
-    const label = sub ? 'P' + page + ' ' + sub : 'P' + page;
-    text = padRight(label, 7);
+    let label = sub ? 'P' + page + ' ' + sub : 'P' + page;
+    if (hasSubpages()) {
+      label = 'P' + _subpageState.pageNum + ' ' +
+              (_subpageState.current + 1) + '/' + _subpageState.screens.length;
+    }
+    text = padRight(label, 10);
   } else {
     // Show partial entry: P1__, P10_
     const d1 = buf[0] || '_';
     const d2 = buf[1] || '_';
     const d3 = buf[2] || '_';
-    text = padRight('P' + d1 + d2 + d3, 7);
+    text = padRight('P' + d1 + d2 + d3, 10);
   }
   _pagenumNode.textContent = text;
 }
@@ -1241,7 +1286,7 @@ function buildPage100Body(headlineRowSpec) {
   /* Row 11: live headline (or placeholder) */
   rows.push(headlineRowSpec || row(
     seg(' ', 'black', 'black'),
-    seg(truncate('Loading latest headline from BBC...', COLS - 1), 'white', 'black'),
+    seg(truncate('Loading latest headline...', COLS - 1), 'white', 'black'),
   ));
 
   /* Row 12: divider */
@@ -1985,8 +2030,8 @@ function _renderSubpage(n) {
   const st = _subpageState;
   const screen = st.screens[n];
   const subLabel = (n + 1) + '/' + st.screens.length;
-  assemblePage(screen, String(st.pageNum), subLabel);
   st.current = n;
+  assemblePage(screen, String(st.pageNum), subLabel);
 
   // Update URL hash without triggering a full route cycle
   const newHash = '#' + st.pageNum + '/' + (n + 1);
@@ -3382,7 +3427,7 @@ function _changeStr(todayRate, yesterdayRate) {
   const todayIDR     = _idrPer1(todayRate);
   const yesterdayIDR = _idrPer1(yesterdayRate);
   const diff         = Math.round(todayIDR - yesterdayIDR);
-  if (diff === 0) return ' \u2014';   // em dash = no change
+  if (diff === 0) return ' 0';        // exact zero change
   if (diff > 0)   return '+' + diff.toLocaleString('en-US');
   return String(diff.toLocaleString('en-US')); // negative already has minus
 }
@@ -3532,7 +3577,7 @@ function buildPage400Body(currResult, yesterdayRates) {
 
     if (hasChange) {
       const yRate   = yesterdayRates[pair.code];
-      const chgStr  = (rate && yRate) ? _changeStr(rate, yRate) : '';
+      const chgStr  = (rate && yRate) ? _changeStr(rate, yRate) : ' \u2014';
       const chgColour = chgStr.startsWith('+') ? 'green' :
                         chgStr.startsWith('-') ? 'red'   : 'white';
 
@@ -4388,6 +4433,17 @@ function buildPage200Body(sportResult, scoresResult) {
     rows.push(r);
   }
 
+  /* No headlines: in-universe unavailable block in the headline rows */
+  if (storiesToShow.length === 0) {
+    rows.push(row(seg(padCentre('SPORT HEADLINES UNAVAILABLE', COLS), 'white', 'red')));
+    rows.push(blankRow());
+    rows.push(row(seg(padCentre('THE SPORTS WIRE IS OFF AIR', COLS), 'yellow', 'black')));
+    rows.push(row(seg(padCentre('PLEASE TRY LATER', COLS), 'yellow', 'black')));
+    rows.push(blankRow());
+    rows.push(row(seg(padCentre('SCORES ARE SHOWN BELOW', COLS), 'cyan', 'black')));
+    rows.push(row(seg(padCentre('MORE RESULTS ON PAGE 201', COLS), 'cyan', 'black')));
+  }
+
   /* Pad to reach row 13 (body index 12) */
   while (rows.length < 12) rows.push(blankRow());
 
@@ -4420,7 +4476,11 @@ function buildPage200Body(sportResult, scoresResult) {
   rows.push(blankRow());
 
   /* Row 22: data footer (sport RSS timestamp) */
-  rows.push(newsFooterRow(fetchedAt, fromCache, 'BBC SPORT'));
+  if (items.length === 0) {
+    rows.push(row(seg(padRight('NO SPORT HEADLINES AVAILABLE', COLS), 'black', 'cyan')));
+  } else {
+    rows.push(newsFooterRow(fetchedAt, fromCache, 'BBC SPORT'));
+  }
 
   /* Row 23: fastext bar — green active = 200 (we're on it), 201 in yellow */
   rows.push(fasstextRow({
