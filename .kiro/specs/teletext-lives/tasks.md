@@ -59,7 +59,7 @@ Build task list from brief section 7.2. Execute top to bottom — one task per K
   **Done when:** With devtools set to Offline, every page (100–888) still renders something honest — no blank stage anywhere.  
   *Est. ~300 credits*
 
-- [ ] **T11 — Deploy**  
+- [x] **T11 — Deploy**  
   Enable GitHub Pages. Finish `README.md` (live URL, screenshots of index + weather + markets, data-source credits, how to run locally). Run final `git status` to audit `/.kiro` is present and not gitignored. Test the live URL on a phone and verify `…/#300` deep link works from a fresh browser tab.  
   **Done when:** Live URL loads on a phone; `…/#300` deep links to the weather page; repo audit is clean; `/.kiro` is visible in the public GitHub repo.  
   *Est. ~120 credits*
